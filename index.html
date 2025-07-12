@@ -12,7 +12,8 @@
     header { padding: 1rem; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .controls { max-width: 600px; margin: 0 auto; display: flex; align-items: center; gap: 1rem; }
     .controls input[type=file] { flex: 1; }
-    .controls button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+    .controls a.button { padding: 0.5rem 1rem; font-size: 1rem; text-decoration: none; background: #1976d2; color: #fff; border-radius: 4px; display: inline-block; }
+    .controls a.button.disabled { background: #ccc; pointer-events: none; }
     #status { font-size: 0.9rem; color: #555; margin-top: 0.5rem; text-align: center; }
 
     /* Code panes container */
@@ -34,7 +35,7 @@
   <header>
     <div class="controls">
       <input type="file" id="fileInput" accept=".nc" />
-      <button id="downloadBtn" disabled style="display:none">Download Scaled</button>
+      <a id="downloadBtn" class="button disabled" style="display:none">Download Scaled</a>
     </div>
     <div id="status">Select a .nc file.</div>
   </header>
@@ -99,11 +100,9 @@
         });
       });
 
-      // Sync scroll
       originalPane.onscroll = e => scaledPane.scrollTop = e.target.scrollTop;
       scaledPane.onscroll = e => originalPane.scrollTop = e.target.scrollTop;
 
-      // Click & hover events
       function addLineEvents(pane, otherPane) {
         pane.querySelectorAll('.line').forEach(el => {
           el.addEventListener('click', () => {
@@ -124,15 +123,14 @@
       addLineEvents(originalPane, scaledPane);
       addLineEvents(scaledPane, originalPane);
 
-      // Prepare download
       if (scaledBlobUrl) URL.revokeObjectURL(scaledBlobUrl);
       const blob = new Blob([scaledLines.join('\n')], { type: 'text/plain' });
       scaledBlobUrl = URL.createObjectURL(blob);
       downloadBtn.href = scaledBlobUrl;
       const name = fileInput.files[0].name.replace(/\.nc$/i, '_scaled.nc');
       downloadBtn.download = name;
-      downloadBtn.style.display = 'block';
-      downloadBtn.disabled = false;
+      downloadBtn.style.display = 'inline-block';
+      downloadBtn.classList.remove('disabled');
 
       codeContainer.style.display = 'flex';
       statusDiv.textContent = 'Done!';
@@ -147,6 +145,7 @@
       statusDiv.textContent = `Loaded: ${file.name}`;
       codeContainer.style.display = 'none';
       downloadBtn.style.display = 'none';
+      downloadBtn.classList.add('disabled');
       const reader = new FileReader();
       reader.onload = e => {
         rawLines = e.target.result.split(/\r?\n/);
