@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>G-code Scaler (×10)</title>
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; background: #f0f2f5; }
+    body { display: flex; flex-direction: column; font-family: Arial, sans-serif; }
+
+    /* Header with centered controls */
+    header { padding: 1rem; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .controls { max-width: 600px; margin: 0 auto; display: flex; align-items: center; gap: 1rem; }
+    .controls input[type=file] { flex: 1; }
+    .controls button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+    #status { font-size: 0.9rem; color: #555; margin-top: 0.5rem; text-align: center; }
+
+    /* Code panes container */
+    .code-container { flex: 1; display: flex; overflow: hidden; padding: 1rem; gap: 1rem; }
+    .pane-wrapper { flex: 1; display: flex; flex-direction: column; background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+    .pane-header { background: #1976d2; color: #fff; padding: 0.5rem; font-weight: bold; text-align: center; }
+    .pane { flex: 1; overflow: auto; background: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 0.9rem; padding: 0.5rem; }
+    .pane .line { white-space: pre; padding: 0 4px; }
+    .pane .highlight { background: #264f78 !important; }
+    .pane .hover-highlight { background: #264f78 !important; }
+
+    /* Syntax highlighting */
+    .keyword { color: #569CD6; }
+    .coord { color: #CE9178; }
+    .feed { color: #D16969; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="controls">
+      <input type="file" id="fileInput" accept=".nc" />
+      <button id="downloadBtn" disabled style="display:none">Download Scaled</button>
+    </div>
+    <div id="status">Select a .nc file.</div>
+  </header>
+
+  <div class="code-container" id="codeContainer" style="display:none">
+    <div class="pane-wrapper">
+      <div class="pane-header">Original G-code</div>
+      <div class="pane" id="originalPane"></div>
+    </div>
+    <div class="pane-wrapper">
+      <div class="pane-header">Scaled G-code (×10)</div>
+      <div class="pane" id="scaledPane"></div>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const statusDiv = document.getElementById('status');
+    const codeContainer = document.getElementById('codeContainer');
+    const originalPane = document.getElementById('originalPane');
+    const scaledPane = document.getElementById('scaledPane');
+
+    let rawLines = [];
+    let scaledLines = [];
+    let scaledBlobUrl = '';
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function highlightSyntax(line) {
+      return escapeHtml(line)
+        .replace(/(G0[0-3])/g, '<span class="keyword">$1</span>')
+        .replace(/([XYZIJ]-?\d+\.\d+)/g, '<span class="coord">$1</span>')
+        .replace(/\b([FS]\d+)\b/g, '<span class="feed">$1</span>');
+    }
+
+    function processAndRender() {
+      statusDiv.textContent = 'Scaling...';
+      const lineRE = /^\s*(G0[0-3])\b/;
+      scaledLines = rawLines.map(line => {
+        if (lineRE.test(line)) {
+          return line.replace(/([XYZIJ])(-?\d+\.\d+)/g, (m, axis, num) => {
+            const decimals = num.split('.')[1].length;
+            return axis + (parseFloat(num) * 10).toFixed(decimals);
+          });
+        }
+        return line;
+      });
+
+      originalPane.innerHTML = '';
+      scaledPane.innerHTML = '';
+      rawLines.forEach((l, i) => {
+        ['originalPane', 'scaledPane'].forEach((id, idx) => {
+          const pane = document.getElementById(id);
+          const div = document.createElement('div');
+          div.className = 'line';
+          div.dataset.line = i;
+          div.innerHTML = highlightSyntax(idx === 0 ? rawLines[i] : scaledLines[i] || '');
+          pane.appendChild(div);
+        });
+      });
+
+      // Sync scroll
+      originalPane.onscroll = e => scaledPane.scrollTop = e.target.scrollTop;
+      scaledPane.onscroll = e => originalPane.scrollTop = e.target.scrollTop;
+
+      // Click & hover events
+      function addLineEvents(pane, otherPane) {
+        pane.querySelectorAll('.line').forEach(el => {
+          el.addEventListener('click', () => {
+            const ln = el.dataset.line;
+            document.querySelectorAll('.highlight').forEach(h => h.classList.remove('highlight'));
+            [pane, otherPane].forEach(p => p.querySelector(`.line[data-line='${ln}']`).classList.add('highlight'));
+          });
+          el.addEventListener('mouseover', () => {
+            const ln = el.dataset.line;
+            [pane, otherPane].forEach(p => p.querySelector(`.line[data-line='${ln}']`).classList.add('hover-highlight'));
+          });
+          el.addEventListener('mouseout', () => {
+            const ln = el.dataset.line;
+            [pane, otherPane].forEach(p => p.querySelector(`.line[data-line='${ln}']`).classList.remove('hover-highlight'));
+          });
+        });
+      }
+      addLineEvents(originalPane, scaledPane);
+      addLineEvents(scaledPane, originalPane);
+
+      // Prepare download
+      if (scaledBlobUrl) URL.revokeObjectURL(scaledBlobUrl);
+      const blob = new Blob([scaledLines.join('\n')], { type: 'text/plain' });
+      scaledBlobUrl = URL.createObjectURL(blob);
+      downloadBtn.href = scaledBlobUrl;
+      const name = fileInput.files[0].name.replace(/\.nc$/i, '_scaled.nc');
+      downloadBtn.download = name;
+      downloadBtn.style.display = 'block';
+      downloadBtn.disabled = false;
+
+      codeContainer.style.display = 'flex';
+      statusDiv.textContent = 'Done!';
+    }
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file || !/\.nc$/i.test(file.name)) {
+        statusDiv.textContent = 'Please select a valid .nc file.';
+        return;
+      }
+      statusDiv.textContent = `Loaded: ${file.name}`;
+      codeContainer.style.display = 'none';
+      downloadBtn.style.display = 'none';
+      const reader = new FileReader();
+      reader.onload = e => {
+        rawLines = e.target.result.split(/\r?\n/);
+        processAndRender();
+      };
+      reader.readAsText(file);
+    });
+  </script>
+</body>
+</html>
